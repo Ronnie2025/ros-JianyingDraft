@@ -1,0 +1,13 @@
+ros-JianyingDraft
+Project contributions: Copyright 2026 Ronnie2025.
+
+This project depends on pyJianYingDraft by GuanYixuan / Gary Guan.
+Upstream copyright: Copyright 2024 Gary Guan.
+https://github.com/GuanYixuan/pyJianYingDraft
+Licensed under the Apache License, Version 2.0.
+The dependency is installed at runtime, not bundled here.
+
+Mac draft compatibility references the public video-shotcraft adapter:
+https://github.com/Vincentwei1021/video-shotcraft/blob/main/jianying-export/mac_draft.py
+https://github.com/Vincentwei1021/video-shotcraft/blob/main/LICENSE
+The converter and local installation logic in this repository are project-specific implementations.

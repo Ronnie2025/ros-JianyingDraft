@@ -1,0 +1,4 @@
+interface:
+  display_name: "ros-JianyingDraft"
+  short_description: "将明确剪辑方案与完整源素材转换为原生分层的可编辑剪映草稿工程"
+  default_prompt: "使用 $ros-JianyingDraft 将我提供的明确剪辑方案和素材转换为独立剪映草稿，保留原切点、文字、音画关系与可编辑层级。"
