@@ -11,3 +11,8 @@ Mac draft compatibility references the public video-shotcraft adapter:
 https://github.com/Vincentwei1021/video-shotcraft/blob/main/jianying-export/mac_draft.py
 https://github.com/Vincentwei1021/video-shotcraft/blob/main/LICENSE
 The converter and local installation logic in this repository are project-specific implementations.
+
+Native subtitle metadata and batch grouping reference:
+https://github.com/aoguai/pyJianYingDraft/tree/4a7730c9a14e91aa497e723c85b5c433a62a163c
+Licensed under Apache-2.0. Project adaptation in subtitle_material.py
+preserves explicit text roles, original wrapping and caller-provided styles.

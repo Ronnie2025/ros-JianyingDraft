@@ -91,8 +91,9 @@ def validate_style(t):
         if k in t:number(t[k],k)
 
 def normalize(plan_path, path_map=None):
-    p=load(plan_path); keys(p,{'schema_version','name','canvas','assets','tracks'}, {'schema_version','name','canvas','assets','tracks'},'plan')
+    p=load(plan_path); keys(p,{'schema_version','name','canvas','assets','tracks','subtitle_sync'}, {'schema_version','name','canvas','assets','tracks'},'plan')
     require(p['schema_version']==1,'unsupported schema_version')
+    require(isinstance(p.get('subtitle_sync',True),bool),'subtitle_sync must be boolean')
     require(isinstance(p['name'],str) and p['name'].strip() and not any(c in p['name'] for c in '/\\\0') and p['name'] not in ('.','..'),'invalid name')
     c=p['canvas'];keys(c,{'width','height','fps'}, {'width','height','fps'},'canvas')
     require(all(isinstance(c[k],int) and not isinstance(c[k],bool) and c[k]>0 for k in c),'canvas fields must be positive integers')
@@ -120,17 +121,18 @@ def normalize(plan_path, path_map=None):
         a['path']=str(actual);a['sha256']=h
     segments={}; names=set(); prepared=[]
     for track in p['tracks']:
-        keys(track,{'name','type','segments'}, {'name','type','segments'},'track')
+        keys(track,{'name','type','segments','subtitle_group'}, {'name','type','segments'},'track')
         require(isinstance(track['name'],str) and track['name'] and track['name'] not in names,'duplicate/invalid track name');names.add(track['name'])
-        require(track['type'] in ('video','audio','text'),'unsupported track type')
+        require(track['type'] in ('video','audio','text','subtitle'),'unsupported track type')
+        if 'subtitle_group' in track:require(track['type']=='subtitle' and isinstance(track['subtitle_group'],str) and track['subtitle_group'].strip(),'subtitle_group requires subtitle track and nonempty name')
         require(isinstance(track['segments'],list) and track['segments'],'empty/invalid track segments')
         for s in track['segments']:
-            allowed={'id','asset','source_in','source_out','target_start','duration','speed','volume','change_pitch','transform','crop','fade_in','fade_out'} if track['type']!='text' else {'id','text','time_basis','start','end','clip_id','style','transform','font','border'}
-            required={'id','asset','target_start'} if track['type']!='text' else {'id','text','time_basis','start','end','style','transform','font'}
+            allowed={'id','asset','source_in','source_out','target_start','duration','speed','volume','change_pitch','transform','crop','fade_in','fade_out'} if track['type'] not in ('text','subtitle') else {'id','text','time_basis','start','end','clip_id','style','transform','font','border'}
+            required={'id','asset','target_start'} if track['type'] not in ('text','subtitle') else {'id','text','time_basis','start','end','style','transform','font'}
             keys(s,allowed,required,'segment')
             require(isinstance(s['id'],str) and s['id'] and s['id'] not in segments,'duplicate/invalid segment id')
             segments[s['id']]=(track,s)
-            if track['type']=='text':continue
+            if track['type'] in ('text','subtitle'):continue
             require(s['asset'] in assets,f'unknown asset {s["asset"]}');a=assets[s['asset']]
             require((track['type']=='audio')==(a['kind']=='audio'),'track/asset kind mismatch')
             start=us(s['target_start'])
@@ -156,7 +158,7 @@ def normalize(plan_path, path_map=None):
             prepared.append(dict(id=s['id'],track=track['name'],type=track['type'],asset=a['id'],target_start_us=start,duration_us=dur,source_start_us=source,source_duration_us=dur if a['kind']=='image' else end-source,speed=speed))
     by_id={s['id']:s for s in prepared}
     for track,s in segments.values():
-        if track['type']!='text':continue
+        if track['type'] not in ('text','subtitle'):continue
         require(isinstance(s['text'],str) and s['text'],'text must be nonempty string')
         require(s['time_basis'] in ('timeline','source'),'text time_basis must be timeline or source')
         start=us(s['start']);end=us(s['end']);require(end>start,'invalid text range')
@@ -172,7 +174,7 @@ def normalize(plan_path, path_map=None):
             keys(s['border'],{'width','color','alpha'},{'width','color'},'border')
             require(0<=number(s['border']['width'],'border width')<=100,'border width out of range')
             validate_style(dict(size=1,align=0,color=s['border']['color'],alpha=s['border'].get('alpha',1)))
-        prepared.append(dict(id=s['id'],track=track['name'],type='text',target_start_us=start,duration_us=end-start,text=s['text']))
+        prepared.append(dict(id=s['id'],track=track['name'],type=track['type'],target_start_us=start,duration_us=end-start,text=s['text']))
     for t in p['tracks']:
         ordered=sorted((x for x in prepared if x['track']==t['name']),key=lambda x:x['target_start_us'])
         for a,b in zip(ordered,ordered[1:]):require(a['target_start_us']+a['duration_us']<=b['target_start_us'],f'overlap within track {t["name"]}: specify separate layers; input not changed')
@@ -200,10 +202,10 @@ def build(plan_path,output,path_map=None):
         script=jy.ScriptFile(p['canvas']['width'],p['canvas']['height'],p['canvas']['fps'],False)
         metadata={d['id']:d for d in deps};objects={};info={s['id']:s for s in prepared}
         for t in p['tracks']:
-            script.append_track(jy.TrackSpec(getattr(jy.TrackType,t['type']),t['name']))
+            script.append_track(jy.TrackSpec(getattr(jy.TrackType,'text' if t['type']=='subtitle' else t['type']),t['name']))
             for s in t['segments']:
                 n=info[s['id']];tr=jy.Timerange(n['target_start_us'],n['duration_us'])
-                if t['type']=='text':
+                if t['type'] in ('text','subtitle'):
                     font=None if s['font']=='system' else jy.FontType.from_name(s['font'])
                     obj=jy.TextSegment(s['text'],tr,font=font,style=jy.TextStyle(**s['style']),clip_settings=jy.ClipSettings(**s['transform']),border=jy.TextBorder(**s['border']) if 'border' in s else None)
                 else:
@@ -226,10 +228,13 @@ def build(plan_path,output,path_map=None):
         draft=stage/'draft';draft.mkdir();script.dump(str(draft/'draft_content.json'))
         meta_template=load(Path(jy.__file__).parent/'assets/draft_meta_info.json')
         meta_template['draft_id']=str(uuid.uuid4()).upper();dump(draft/'draft_meta_info.json',meta_template)
-        raw=load(draft/'draft_content.json');raw['id']=uuid.uuid4().hex.upper();raw['name']=p['name'];dump(draft/'draft_content.json',raw)
+        raw=load(draft/'draft_content.json');raw['id']=uuid.uuid4().hex.upper();raw['name']=p['name']
+        from subtitle_material import apply_subtitle_materials
+        subtitle_groups=apply_subtitle_materials(raw,p)
+        dump(draft/'draft_content.json',raw)
         adapt(draft,p['name'],output/'draft',deps)
         dump(stage/'conversion-plan.json',p);dump(stage/'dependencies.json',deps);dump(stage/'segment-map.json',prepared)
-        report=dict(status='structure_passed',app_verified=False,upstream_commit=COMMIT,canvas=p['canvas'],duration_us=max(x['target_start_us']+x['duration_us'] for x in prepared),segments=len(prepared),warnings=warnings,media_mode='reference',unsupported_effects_policy='block',editable_media='native trim/transform; supplied rendered media remains a single media element')
+        report=dict(status='structure_passed',app_verified=False,upstream_commit=COMMIT,canvas=p['canvas'],duration_us=max(x['target_start_us']+x['duration_us'] for x in prepared),segments=len(prepared),subtitle_groups=subtitle_groups,warnings=warnings,media_mode='reference',unsupported_effects_policy='block',editable_media='native trim/transform; supplied rendered media remains a single media element')
         dump(stage/'validation.json',report)
         dump(stage/'generated-files.json',{f.name:digest(f) for f in draft.iterdir() if f.is_file()})
         stage.rename(output);verify(output);return report
@@ -246,7 +251,7 @@ def verify(output):
         q=Path(d['path']);require(q.is_file(),f'missing media: {q}');require(q.stat().st_size==d['size_bytes'] and digest(q)==d['sha256'],f'media changed: {q}')
     raw=load(output/'draft/draft_content.json');wanted=load(output/'segment-map.json');actual={s['id']:s for t in raw['tracks'] for s in t['segments']}
     plan=load(output/'conversion-plan.json');asset_paths={a['id']:a['path'] for a in plan['assets']}
-    require([(t['name'],t['type']) for t in raw['tracks']]==[(t['name'],t['type']) for t in plan['tracks']],'track order/type changed')
+    require([(t['name'],t['type']) for t in raw['tracks']]==[(t['name'],'text' if t['type']=='subtitle' else t['type']) for t in plan['tracks']],'track order/type changed')
     originals={s['id']:s for t in plan['tracks'] for s in t['segments']}
     for t,pt in zip(raw['tracks'],plan['tracks']):
         require({s['id'] for s in t['segments']}=={material_id(s['id']) for s in pt['segments']},'segment assigned to wrong track')
@@ -256,7 +261,7 @@ def verify(output):
         s=actual[material_id(x['id'])];require(s['target_timerange']=={'start':x['target_start_us'],'duration':x['duration_us']},f'target range mismatch {x["id"]}')
         require(s['material_id'] in materials,'unresolved material')
         original=originals[x['id']];mat=materials[s['material_id']]
-        if x['type']=='text':
+        if x['type'] in ('text','subtitle'):
             content=json.loads(mat['content']);require(content['text']==x['text'],'text changed')
             st=content['styles'][0];style=original['style']
             require(st['size']==style['size'] and st['fill']['content']['solid']['color']==style['color'] and mat['alignment']==style['align'],'text style changed')
@@ -288,6 +293,8 @@ def verify(output):
             for k,default in [('alpha',1),('rotation',0)]:require(clip[k]==tr.get(k,default),f'transform {k} changed')
             for k,group,axis,default in [('scale_x','scale','x',1),('scale_y','scale','y',1),('transform_x','transform','x',0),('transform_y','transform','y',0),('flip_horizontal','flip','horizontal',False),('flip_vertical','flip','vertical',False)]:require(clip[group][axis]==tr.get(k,default),f'transform {k} changed')
     require(raw['duration']==report['duration_us'],'duration mismatch')
+    from subtitle_material import verify_subtitle_materials
+    verify_subtitle_materials(raw,plan)
     return dict(status='structure_passed',app_verified=False,segments=len(actual))
 
 def install_bundle(output,root=None,compatibility_trial=False):
@@ -301,7 +308,7 @@ def install_bundle(output,root=None,compatibility_trial=False):
                 if info.get('CFBundleIdentifier')=='com.lemon.lvpro':apps.append((path,info.get('CFBundleShortVersionString')))
             except (OSError,plistlib.InvalidFileException):pass
     require(len(apps)==1,'cannot uniquely identify domestic Jianying com.lemon.lvpro')
-    require(apps[0][1] in ('11.4.0','11.4.2') or compatibility_trial,f'untested application version {apps[0][1]}; use --compatibility-trial only for isolated compatibility evaluation')
+    require(apps[0][1] in ('11.4.0','11.4.2','11.5.0') or compatibility_trial,f'untested application version {apps[0][1]}; use --compatibility-trial only for isolated compatibility evaluation')
     executable=plistlib.loads((apps[0][0]/'Contents/Info.plist').read_bytes())['CFBundleExecutable']
     running=subprocess.run(['pgrep','-f',str(apps[0][0]/'Contents/MacOS'/executable)],capture_output=True,text=True)
     require(running.returncode in (0,1),'cannot inspect application process state; process-list access required')
