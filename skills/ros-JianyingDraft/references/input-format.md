@@ -2,6 +2,8 @@
 
 Agent 将用户已经确定的文字说明或表格转为此 JSON。仅执行明确映射与算术；必需信息缺失时集中报告。已有成片只能用于参考，不能据此推断源素材、切点或分层。
 
+同期人声与人物小窗先按 [声画编辑单元](edit-units.md) 检查。默认同期声留在视频片段；从该视频导出的 WAV 仍算同期声，不因文件格式改变而成为独立旁白。这里的 JSON 不包含永久绑定／原生组合字段，不得自行添加类似 `linked_to`、`group` 或 `main_track` 的未支持字段来承诺关联。
+
 ## 根对象
 
 `schema_version: 1`、`name`、`canvas: {width,height,fps}`、`assets`、`tracks` 必填。可选根字段 `subtitle_sync` 为布尔值，默认 true，对应字幕面板样式联动开关。画幅由宽高确定，fps 为 24/25/30/50/60 整数。轨道按数组从底到顶排列，类型为 video/audio/text/subtitle；所有轨道名称、所有片段 ID、所有素材 ID 各自唯一。
@@ -12,7 +14,7 @@ Agent 将用户已经确定的文字说明或表格转为此 JSON。仅执行明
 
 ## 视频、音频和图片片段
 
-- 视频/音频必填 `id,asset,source_in,source_out,target_start,speed,volume`。入点包含、出点不包含。目标持续时长=(出点−入点)/speed。volume 为线性增益，0=静音，1=原音量；视频本身无声也要明确填写0。同期声用视频自己的原声；独立旁白使用音轨，原视频音量由输入明确指定。
+- 视频/音频必填 `id,asset,source_in,source_out,target_start,speed,volume`。入点包含、出点不包含。目标持续时长=(出点−入点)/speed。volume 为线性增益，0=静音，1=原音量；视频本身无声也要明确填写0。同期声默认使用视频内的音频；独立旁白、配乐、音效使用音轨。只有输入明确要求拆同期声时，才把同源人声另放音轨。
 - 图片必填 `id,asset,target_start,duration`；放在 video 轨道。图片无音频与源时间字段。
 - `change_pitch` 可选，默认 false，对应恒速变速保持音调；`fade_in,fade_out` 是明确指定的音频淡入淡出秒数，缺省无淡入淡出。
 - `transform` 可选，缺省表示保持原生中性变换：`alpha=1,rotation=0,scale_x=1,scale_y=1,transform_x=0,transform_y=0,flip_horizontal=false,flip_vertical=false`。位置单位是半画布宽/高，旋转为角度。未指定不补背景、不裁主体。原生适配与参考渲染有差异时报告。
@@ -26,7 +28,7 @@ Agent 将用户已经确定的文字说明或表格转为此 JSON。仅执行明
 
 根字段 `subtitle_sync: false` 关闭字幕样式联动，保留原生字幕身份。联动不会在构建时统一或覆盖输入中不同的样式；它控制后续剪映内的编辑行为。
 
-字幕样式联动与时间轴轨道联动分开：`clip_id` 继续仅指定源时间映射，不表示永久绑定。主轨移动时剪映可能依轨道联动开关自动带动覆盖区间的上层内容；本次只验证移动，不能据此承诺删除、分割、裁边或变速时自动重算全部字幕。
+字幕样式联动与时间轴轨道联动分开：`clip_id` 仅指定初始源时间映射，不表示永久绑定。主轨移动时剪映可能依轨道联动开关带动覆盖区间的上层内容；本次任务仍需按 [声画编辑单元](edit-units.md) 实测，不能从历史移动验证推定当前草稿或删除、分割、裁边、变速行为均已通过。
 
 
 必填 `id,text,time_basis,start,end,font,style,transform`。`font="system"` 表示用户选择剪映系统字体；其他值为锁定上游 `FontType` 枚举名。实际字体仍需应用内检查。style 必填 size（剪映库原生单位）、color（RGB三元组0..1）、align（0左1中2右）。可选字段见下方示例；缺省属性遵循上游无修饰文本，不自动添加描边、自动换行或动画。
